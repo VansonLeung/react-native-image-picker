@@ -2,10 +2,11 @@ package com.imagepicker;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
-import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.BitmapFactory.Options;
@@ -13,13 +14,9 @@ import android.graphics.Matrix;
 import android.graphics.drawable.ColorDrawable;
 import android.media.ExifInterface;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
-import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
-import android.support.v4.content.FileProvider;
-import android.app.AlertDialog;
 import android.util.Base64;
 import android.util.Log;
 import android.widget.ArrayAdapter;
@@ -27,7 +24,6 @@ import android.webkit.MimeTypeMap;
 import android.content.pm.PackageManager;
 import android.media.MediaScannerConnection;
 
-import com.facebook.react.bridge.ActivityEventListener;
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Callback;
 import com.facebook.react.bridge.ReactApplicationContext;
@@ -57,7 +53,11 @@ import java.util.Locale;
 import java.util.TimeZone;
 import java.util.UUID;
 
-public class ImagePickerModule extends ReactContextBaseJavaModule implements ActivityEventListener {
+interface ActivityResultInterface {
+  void callback(int requestCode, int resultCode, Intent data);
+}
+
+public class ImagePickerModule extends ReactContextBaseJavaModule {
 
   static final int REQUEST_LAUNCH_IMAGE_CAPTURE = 13001;
   static final int REQUEST_LAUNCH_IMAGE_LIBRARY = 13002;
@@ -65,10 +65,12 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
   static final int REQUEST_LAUNCH_VIDEO_CAPTURE = 13004;
 
   private final ReactApplicationContext mReactContext;
+  private ImagePickerActivityEventListener mActivityEventListener;
 
   private Uri mCameraCaptureURI;
   private Callback mCallback;
   private Boolean noData = false;
+  private Boolean tmpImage;
   private Boolean pickVideo = false;
   private int maxWidth = 0;
   private int maxHeight = 0;
@@ -83,7 +85,13 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
 
     mReactContext = reactContext;
 
-    reactContext.addActivityEventListener(this);
+    mActivityEventListener = new ImagePickerActivityEventListener(reactContext, new ActivityResultInterface() {
+      @Override
+      public void callback(int requestCode, int resultCode, Intent data) {
+        onActivityResult(requestCode, resultCode, data);
+      }
+    });
+
   }
 
   @Override
@@ -220,7 +228,7 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
 
       // we create a tmp file to save the result
       File imageFile = createNewFile();
-      mCameraCaptureURI = compatUriFromFile(mReactContext, imageFile);
+      mCameraCaptureURI = Uri.fromFile(imageFile);
       cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, mCameraCaptureURI);
     }
 
@@ -289,7 +297,7 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
     }
   }
 
-  public void onActivityResult(Activity activity, int requestCode, int resultCode, Intent data) {
+  public void onActivityResult(final int requestCode, final int resultCode, final Intent data) {
     //robustness code
     if (mCallback == null || (mCameraCaptureURI == null && requestCode == REQUEST_LAUNCH_IMAGE_CAPTURE)
             || (requestCode != REQUEST_LAUNCH_IMAGE_CAPTURE && requestCode != REQUEST_LAUNCH_IMAGE_LIBRARY
@@ -502,8 +510,19 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
       || mReactContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY);
   }
 
-  private @NonNull String getRealPathFromURI(@NonNull final Uri uri) {
-    return RealPathUtil.getRealPathFromURI(mReactContext, uri);
+  private String getRealPathFromURI(Uri uri) {
+    String result;
+    String[] projection = {MediaStore.Images.Media.DATA};
+    Cursor cursor = mReactContext.getContentResolver().query(uri, projection, null, null, null);
+    if (cursor == null) { // Source is Dropbox or other similar local file path
+      result = uri.getPath();
+    } else {
+      cursor.moveToFirst();
+      int idx = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
+      result = cursor.getString(idx);
+      cursor.close();
+    }
+    return result;
   }
 
   /**
@@ -560,6 +579,25 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
     return Base64.encodeToString(bytes, Base64.NO_WRAP);
   }
 
+    /**
+   * If necessary, set a sample size > 1 to request the decoder to subsample the
+   * original image, returning a smaller image to save memory.
+   */
+  private int getSampleSize(final String realPath) {
+    File file = new File(realPath);
+    int maxMB = 5;
+    long maxByte = maxMB * 1024 * 1024;
+    long length = file.length();
+    int sampleSize = 1;
+
+    while (length > maxByte) {
+      length /= 2;
+      sampleSize *= 2;
+    }
+
+    return sampleSize;
+  }
+
   /**
    * Create a resized image to fulfill the maxWidth/maxHeight, quality and rotation values
    *
@@ -571,6 +609,8 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
   private File getResizedImage(final String realPath, final int initialWidth, final int initialHeight) {
     Options options = new BitmapFactory.Options();
     options.inScaled = false;
+    options.inSampleSize = getSampleSize(realPath);
+
     Bitmap photo = BitmapFactory.decodeFile(realPath, options);
 
     if (photo == null) {
@@ -645,11 +685,13 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
    * @return an empty file
    */
   private File createNewFile() {
-    String filename = new StringBuilder("image-")
-            .append(UUID.randomUUID().toString())
-            .append(".jpg")
-            .toString();
-    File path = mReactContext.getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+    String filename = "image-" + UUID.randomUUID().toString() + ".jpg";
+    File path;
+    if (tmpImage) {
+      path = mReactContext.getExternalCacheDir();
+    } else {
+      path = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
+    }
 
     File f = new File(path, filename);
     try {
@@ -696,6 +738,10 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
     if (options.hasKey("quality")) {
       quality = (int) (options.getDouble("quality") * 100);
     }
+    tmpImage = true;
+    if (options.hasKey("storageOptions")) {
+      tmpImage = false;
+    }
     rotation = 0;
     if (options.hasKey("rotation")) {
       rotation = options.getInt("rotation");
@@ -714,7 +760,7 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
     }
   }
 
-  public void fileScan(String path) {
+  public void fileScan(String path){
     MediaScannerConnection.scanFile(mReactContext,
             new String[] { path }, null,
             new MediaScannerConnection.OnScanCompletedListener() {
@@ -725,24 +771,6 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
             });
   }
 
-  // Required for ActivityEventListener
+  // Required for RN 0.30+ modules than implement ActivityEventListener
   public void onNewIntent(Intent intent) { }
-
-  // Some people need this for compilation
-  public void onActivityResult(int requestCode, int resultCode, Intent data) { }
-
-  private static Uri compatUriFromFile(@NonNull final Context context, @NonNull final File file) {
-    Uri result = null;
-    if (Build.VERSION.SDK_INT < 19)
-    {
-      result = Uri.fromFile(file);
-    }
-    else
-    {
-      final String packageName = context.getApplicationContext().getPackageName();
-      final String authority =  new StringBuilder(packageName).append(".provider").toString();
-      result = FileProvider.getUriForFile(context, authority, file);
-    }
-    return result;
-  }
 }
