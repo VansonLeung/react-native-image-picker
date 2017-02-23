@@ -6,6 +6,9 @@ import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.BitmapFactory.Options;
@@ -222,6 +225,12 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
       File imageFile = createNewFile();
       mCameraCaptureURI = compatUriFromFile(mReactContext, imageFile);
       cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, mCameraCaptureURI);
+
+      List<ResolveInfo> resolvedIntentActivities = context.getPackageManager().queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY);
+      for (ResolveInfo resolvedIntentInfo : resolvedIntentActivities) {
+        String packageName = resolvedIntentInfo.activityInfo.packageName;
+        context.grantUriPermission(packageName, mCameraCaptureURI, Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+      }
     }
 
     if (cameraIntent.resolveActivity(mReactContext.getPackageManager()) == null) {
@@ -561,25 +570,6 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
   }
 
   /**
-   * If necessary, set a sample size > 1 to request the decoder to subsample the
-   * original image, returning a smaller image to save memory.
-   */
-  private int getSampleSize(final String realPath) {
-    File file = new File(realPath);
-    int maxMB = 2;
-    long maxByte = maxMB * 1024 * 1024;
-    long length = file.length();
-    int sampleSize = 1;
-
-    while (length > maxByte) {
-      length /= 2;
-      sampleSize *= 2;
-    }
-
-    return sampleSize;
-  }
-
-  /**
    * Create a resized image to fulfill the maxWidth/maxHeight, quality and rotation values
    *
    * @param realPath
@@ -590,8 +580,6 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
   private File getResizedImage(final String realPath, final int initialWidth, final int initialHeight) {
     Options options = new BitmapFactory.Options();
     options.inScaled = false;
-    options.inSampleSize = getSampleSize(realPath);
-
     Bitmap photo = BitmapFactory.decodeFile(realPath, options);
 
     if (photo == null) {
