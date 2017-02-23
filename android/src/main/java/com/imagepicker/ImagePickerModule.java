@@ -226,10 +226,10 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
       mCameraCaptureURI = compatUriFromFile(mReactContext, imageFile);
       cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, mCameraCaptureURI);
 
-      List<ResolveInfo> resolvedIntentActivities = context.getPackageManager().queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY);
+      List<ResolveInfo> resolvedIntentActivities = currentActivity.getPackageManager().queryIntentActivities(cameraIntent, PackageManager.MATCH_DEFAULT_ONLY);
       for (ResolveInfo resolvedIntentInfo : resolvedIntentActivities) {
         String packageName = resolvedIntentInfo.activityInfo.packageName;
-        context.grantUriPermission(packageName, mCameraCaptureURI, Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        currentActivity.grantUriPermission(packageName, mCameraCaptureURI, Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
       }
     }
 
