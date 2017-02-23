@@ -561,6 +561,25 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
   }
 
   /**
+   * If necessary, set a sample size > 1 to request the decoder to subsample the
+   * original image, returning a smaller image to save memory.
+   */
+  private int getSampleSize(final String realPath) {
+    File file = new File(realPath);
+    int maxMB = 2;
+    long maxByte = maxMB * 1024 * 1024;
+    long length = file.length();
+    int sampleSize = 1;
+
+    while (length > maxByte) {
+      length /= 2;
+      sampleSize *= 2;
+    }
+
+    return sampleSize;
+  }
+
+  /**
    * Create a resized image to fulfill the maxWidth/maxHeight, quality and rotation values
    *
    * @param realPath
@@ -571,6 +590,8 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
   private File getResizedImage(final String realPath, final int initialWidth, final int initialHeight) {
     Options options = new BitmapFactory.Options();
     options.inScaled = false;
+    options.inSampleSize = getSampleSize(realPath);
+
     Bitmap photo = BitmapFactory.decodeFile(realPath, options);
 
     if (photo == null) {
