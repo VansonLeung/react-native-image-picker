@@ -575,7 +575,7 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
    */
   private int getSampleSize(final String realPath) {
     File file = new File(realPath);
-    int maxMB = 2;
+    int maxMB = 5;
     long maxByte = maxMB * 1024 * 1024;
     long length = file.length();
     int sampleSize = 1;
