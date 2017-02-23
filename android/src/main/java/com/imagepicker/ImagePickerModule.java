@@ -599,7 +599,7 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
   private File getResizedImage(final String realPath, final int initialWidth, final int initialHeight) {
     Options options = new BitmapFactory.Options();
     options.inScaled = false;
-    options.inSampleSize = getSampleSize(realPath);
+//     options.inSampleSize = getSampleSize(realPath);
 
     Bitmap photo = BitmapFactory.decodeFile(realPath, options);
 
